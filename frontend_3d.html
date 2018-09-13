@@ -1,0 +1,816 @@
+<!--
+
+Example of html frontend for the 3d pose estimation using : backend.py
+/!\ The following code only performs GET requests on the backend.
+Might be used with frontend_2d that send the data by POST request to visualize a 3D result.
+
+run on localhost:7575 (last line)
+ -->
+
+
+<!DOCTYPE html>
+
+<html>
+
+
+<head>
+<meta charset="utf-8">
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<script src="https://unpkg.com/d3-3d/build/d3-3d.min.js"></script>
+
+<link href="https://fonts.googleapis.com/css?family=Open+Sans|Oswald" rel="stylesheet">
+
+</head>
+
+
+<body>
+
+<style type="text/css">
+
+    body{
+        position:fixed;
+        top:0px;
+        left:0px;
+        right:0px;
+        bottom:0px;
+        background-image:url('ressources/images/background.png');
+    }
+
+    button {
+
+        font-family: 'Open Sans';
+        background:none;
+        border:none;
+        color:#da6343;
+        font-size:1.0em;
+        position:absolute;
+        right:100px;
+        bottom:50px;
+    }
+
+    .svgWrapper{
+        width:100%;
+        height:100%;
+    }
+
+</style>
+
+
+<div class="audioWrapper" ></div>
+
+
+<div class="svgWrapper" >
+    <svg class="plot3d" width="100%" height="100%" viewBox="0 0 100 100"></svg>
+</div>
+
+
+
+<script>
+
+
+    var AudioInterface = new function(){
+
+        this.wrapper = document.querySelector(".audioWrapper");
+        this.audios = [];
+        this.volume = 1.0;
+
+
+        this.setFiles = function(files){
+
+            while(this.wrapper.childNodes.length  != 0){
+                this.wrapper.removeChild(this.wrapper.childNodes[0])
+            }
+
+            var audioCtx = new AudioContext();
+
+            // create a gain node
+            var gainNode = audioCtx.createGain();
+            gainNode.gain.value = 1; // double the volume
+
+
+            this.audios = [];
+            for(var i = 0; i< files.length; i++){
+
+                var audioId = "audio_"+i;
+                var audio = document.createElement("audio");
+                audio.setAttribute("id", audioId);
+                var source = document.createElement("source");
+                source.setAttribute("src", files[i]);
+                audio.appendChild(source);
+
+                audioCtx.createMediaElementSource(audio).connect(gainNode);
+
+                this.wrapper.appendChild(audio);
+                this.audios.push(audio);
+
+            }
+
+            gainNode.connect(audioCtx.destination);
+
+        }.bind(this);
+
+        this.size = function(){
+            return this.audios.length;
+        }.bind(this);
+
+        this.play = function(audioId){
+            console.log("PLAY : "+this.audios[audioId].volume);
+            this.audios[audioId].play();
+        }.bind(this);
+
+        this.stop = function(audioId){
+
+            if(typeof(this.audios[audioId]) == 'undefined'){
+                console.log("#FOUND")
+                console.log(": "+audioId)
+                console.log(": "+this.audios[audioId])
+            }
+
+            if(!this.audios[audioId].paused){
+                this.audios[audioId].pause()
+            }
+
+        }.bind(this);
+
+        this.setVolume = function(volume){
+            this.volume = volume;
+            this.audios.forEach(function(audio){ audio.volume = volume}.bind(this));
+        }.bind(this);
+
+        this.getVolume = function(volume){
+            return this.volume;
+        }.bind(this);
+
+    };
+
+
+    function Buffer(bufferSize){
+
+        var values = [];
+        var currPosition = -1;
+        var totalAvailableObjects = 0;
+
+        this.push = function(newElement){
+
+            currPosition = (currPosition+1+bufferSize)%bufferSize;
+            values[currPosition] = newElement;
+            totalAvailableObjects = Math.min(bufferSize, totalAvailableObjects+1);
+        };
+
+
+        this.get = function(byNewestId){
+            var id = (currPosition - byNewestId + bufferSize)%bufferSize;
+            return values[id]
+        };
+
+
+        this.size = function(){
+            return totalAvailableObjects;
+        };
+
+        (function(){
+            for(var i = 0; i<bufferSize; i++){
+                values.push("undefined");
+            }
+        })();
+
+    };
+
+
+    function Draggable3DRotation(svgEvent, initRotationX, initRotationY){
+
+
+        var deltaRotationX = 0, deltaRotationY = 0;
+
+        var initMouseX = 0, initMouseY = 0;
+        var lastDragEventTime = false;
+
+        var slidingWindowL1Displacement = new Buffer(3);
+        var lastMovementTimestamps = new Buffer(3);
+
+        var lastMouseX = 0, lastMouseY = 0;
+
+
+        svgEvent.subscribe('dragStart', function(){
+            initMouseX = d3.event.x;
+            initMouseY = d3.event.y;
+            lastMouseX = initMouseX;
+            lastMouseY = initMouseY;
+        }.bind(this));
+
+
+        svgEvent.subscribe('drag', function(){
+
+            deltaRotationX = -(d3.event.y - initMouseY) * Math.PI / 800;
+            deltaRotationY = -(d3.event.x - initMouseX) * Math.PI / 800;
+
+            var currDragEventTime = Date.now();
+            var l1Displacement  = Math.abs(lastMouseX - d3.event.x) + Math.abs(lastMouseY - d3.event.y);
+            lastMouseX = d3.event.x;
+            lastMouseY = d3.event.y;
+
+
+            slidingWindowL1Displacement.push(l1Displacement);
+            lastMovementTimestamps.push(currDragEventTime);
+
+            if(lastDragEventTime == false){
+                lastDragEventTime = currDragEventTime;
+                return;
+            }
+
+            if(Math.PI / 4 <= deltaRotationY && deltaRotationY < Math.PI / 4){
+                //deltaRotationX = -deltaRotationX
+            }
+
+            var newVolume = 0;
+
+            for(var i = 0; i<slidingWindowL1Displacement.size(); i++){
+                newVolume += slidingWindowL1Displacement.get(i);
+            }
+
+            var durationWindow =( lastMovementTimestamps.get(0) - lastMovementTimestamps.get(lastMovementTimestamps.size()-1));
+            durationWindow = Math.max(durationWindow, 0.00001);
+
+            newVolume = Math.min(newVolume/durationWindow, 1.0);
+
+
+            console.log(AudioInterface.volume);
+            AudioInterface.setVolume(newVolume);
+
+
+            lastDragEventTime = currDragEventTime;
+
+
+        }.bind(this));
+
+        svgEvent.subscribe('dragEnd', function(){
+
+            initRotationX = initRotationX + deltaRotationX;
+            initRotationY = initRotationY + deltaRotationY;
+            deltaRotationX = 0;
+            deltaRotationY = 0;
+
+            new Promise((resolve) => setTimeout(resolve, 100)).then(function(){
+                    AudioInterface.setVolume(0);
+            }.bind(this));
+
+        }.bind(this));
+
+
+
+        this.getRotationX = function(){
+            return initRotationX + deltaRotationX;
+        };
+
+
+        this.getRotationY = function(){
+            return initRotationY + deltaRotationY;
+        };
+
+
+    }
+
+
+    function SvgEvent(svg){
+
+
+        var callbacks = {};
+
+
+        (function(){
+
+            callbacks['dragStart'] = [], callbacks['drag'] = [], callbacks['dragEnd'] = [];
+
+
+            var trigger = d3.drag()
+                    .on('drag', function(){
+
+                        callbacks['drag'].forEach(function(runnable){
+                            runnable()
+                        });
+
+                    }.bind(this)).on('start', function() {
+
+                        callbacks['dragStart'].forEach(function(runnable){
+                            runnable()
+                        });
+
+                    }).on('end', function() {
+
+                        callbacks['dragEnd'].forEach(function(runnable){
+                            runnable()
+                        });
+
+                    });
+
+            svg.call(trigger);
+
+        })();
+
+
+        this.subscribe = function(eventType, callback){
+            if(eventType in callbacks){
+                callbacks[eventType].push(callback)
+            }
+            else {
+                console.error("unknown event type : "+eventType)
+            }
+        }
+
+
+    }
+
+
+    function Plot3DView(svg){
+
+
+        var origin = [0, 0];
+        var rotation = [0,0];
+
+        this.projection = d3._3d()
+                .x(function(d){ return d.x; })
+                .y(function(d){ return d.y; })
+                .z(function(d){ return d.z; })
+                .rotateY( rotation[1] )
+                .rotateX( rotation[0] )
+                .origin(origin);
+
+
+        var posPointX = function(d){
+            return d.projected.x;
+        };
+
+        var posPointY = function(d){
+            return d.projected.y;
+        };
+
+
+        this.setRotation = function(rotX, rotY){
+
+            rotation[0] = rotX;
+            rotation[1] = rotY;
+
+            this.projection = d3._3d()
+                    .x(function(d){ return d.x; })
+                    .y(function(d){ return d.y; })
+                    .z(function(d){ return d.z; })
+                    .rotateY( rotation[1] )
+                    .rotateX( rotation[0] )
+                    .origin(origin);
+
+        };
+
+        this.setTranslation = function(deltaX, deltaY){
+
+            origin[0] = deltaX;
+            origin[1] = deltaY;
+
+            this.projection = d3._3d()
+                    .x(function(d){ return d.x; })
+                    .y(function(d){ return d.y; })
+                    .z(function(d){ return d.z; })
+                    .rotateY( rotation[1] )
+                    .rotateX( rotation[0] )
+                    .origin(origin);
+        };
+
+
+        // shape3d => 3d scatter type
+        this.display = function(data, style, durationFunc){
+
+            data = this.projection(data);
+
+            var circles = svg.selectAll("circle").data(data);
+
+            circles.exit().remove();
+
+            var cEnter = circles.enter().append("circle");
+
+            if(style != 'undefined') {
+                for (var attrName in style) {
+                    cEnter.attr(attrName, style[attrName])
+                }
+            }
+
+            circles.transition()
+                  .duration(durationFunc)
+                  .attr('cx', posPointX)
+                  .attr('cy', posPointY);
+
+        };
+
+        this.htmlNode = function(){
+            return svg;
+        };
+
+    }
+
+
+    function Person3DView(svg){
+
+        console.log("new persons");
+
+        var headNode = svg.append('g')
+        var bonesNode = svg.append('g')
+        var jointsNode = svg.append('g')
+
+        var headView = new Plot3DView( headNode );
+        var bonesView = new Plot3DView( bonesNode );
+        var jointsView = new Plot3DView( jointsNode );
+
+        var headStyle = {
+            'fill':function(d){ return d3.rgb(255,255,255); },
+            'r':1.55,
+            'opacity':0.05
+        };
+
+        var jointsStyle = {
+            'fill':function(d){ return d3.rgb(255,255,255); },
+            'r':1.05,
+            'opacity':0.2
+        };
+
+        var bonesStyle = {
+            'fill':function(d){ return d3.rgb(255,255,255); },
+            'r':0.23,
+            'opacity':0.3
+        };
+
+        var bonesDelay = function(data){
+            return Math.random()*500;
+        };
+
+        var jointDelay = function(data){
+            return 0;
+        };
+
+        this.display = function(data, rotX, rotY){
+
+            console.log("new display");
+            bonesView.setRotation(rotX, rotY);
+            bonesView.setTranslation(data['bbox'][0],data['bbox'][1]);
+            bonesView.display(data['bones'], bonesStyle, bonesDelay);
+
+            var head = data['joints'].shift();
+             headView.setRotation(rotX, rotY);
+             headView.setTranslation(data['bbox'][0],data['bbox'][1]);
+             headView.display([head],  headStyle, jointDelay);
+
+            jointsView.setRotation(rotX, rotY);
+            jointsView.setTranslation(data['bbox'][0],data['bbox'][1]);
+            jointsView.display(data['joints'],  jointsStyle, jointDelay);
+
+            console.log(data['bbox'][0])
+            console.log(data['bbox'][1])
+            console.log(head)
+
+        };
+
+
+        this.delete = function(){
+            headNode.remove();
+            bonesNode.remove();
+            jointsNode.remove();
+        }
+
+    }
+
+
+    function Vector3D(x,y,z){
+
+        this.x = x, this.y = y, this.z = z;
+
+        this.multiply = function(weight){
+            return new Vector3D(this.x*weight, this.y*weight, this.z*weight);
+        };
+
+        this.substract = function(that){
+
+            return new Vector3D(this.x - that.x, this.y - that.y, this.z - that.z);
+        };
+
+        this.add = function(that){
+
+            return new Vector3D(this.x + that.x, this.y + that.y, this.z + that.z);
+        };
+
+        this.norm = function(){
+            return Math.sqrt( this.x*x + this.y*this.y + this.z*this.z )
+        };
+
+        this.data = function(){
+            return [this.x, this.y, this.z];
+        };
+
+    }
+
+
+
+    function DataProvider(callbacks){
+
+
+        var counter = 0;
+
+        var jointNames = ["head", "leftShoulder", "rightShoulder", "leftElbow", "rightElbow", "leftWrist", "rightWrist", "leftHip",
+            "rightHip", "leftKnee", "rightKnee", "leftAnkle", "rightAnkle"];
+
+        var bones = [[1,3],[3,5],[2,4],[4,6],[7,9],[9,11],[8,10],[10,12], [7,8], [1,2], [7,1], [8,2]];
+
+
+
+
+        var d3Adapteur = function(point){
+            counter += 1;
+            return {x:point[0], y:point[1], z:point[2], id:"point_"+counter};
+        };
+
+
+        var pointAroundSegment = function(point1, point2, maxDistance){
+
+            var toPoint2 = point2.substract(point1);
+
+            var randomPointOnEdge = point1.add(toPoint2.multiply(Math.random()));
+
+            var perpendicular = new Vector3D(Math.random(),Math.random(),Math.random());
+
+            var randomNorm = Math.random()*maxDistance;
+
+            var pointAroundSegment = randomPointOnEdge.add(perpendicular.multiply(randomNorm));
+
+            return d3Adapteur( pointAroundSegment.data());
+        };
+
+
+        this.randomPointsAroundSegment = function(point1, point2, maxDistance, totalPoints){
+
+            var points = [];
+            for (var i = 0; i< totalPoints; i++){
+                points.push(pointAroundSegment(point1, point2, maxDistance))
+            }
+            return points;
+        };
+
+
+
+        this.pose2dToBoundingBox = function(pose2d){
+
+            var minX = 100, maxX = -1, minY = 100, maxY = -1;
+
+            for(var jointId = 0; jointId < pose2d.length; jointId ++){
+                if(pose2d[jointId][0] > 0 &&  pose2d[jointId][1] > 0) {
+                    minX = Math.min(minX, pose2d[jointId][0] * 100);
+                    maxX = Math.max(maxX, pose2d[jointId][0] * 100);
+                    minY = Math.min(minY, pose2d[jointId][1] * 100);
+                    maxY = Math.max(maxY, pose2d[jointId][1] * 100);
+                }
+            }
+
+            // no joints are detected
+            if(maxX == -1){
+                return [0,0,0];
+            }
+
+
+            var centerX = (minX + maxX)/2;
+            var centerY = (minY + maxY)/2;
+            var width = maxX - minX;
+            var height = maxY - minY;
+
+            return [centerX, centerY, Math.max(width,height)*1.3];
+        };
+
+
+        this.scale = function(pose3d, bbox){
+
+            for(var jointId=0; jointId<pose3d.length; jointId++) {
+                if(bbox[0] != -1 && pose3d[jointId][0] != -1) {
+                        pose3d[jointId][0] = (pose3d[jointId][0] * bbox[2])/2.0;
+                        pose3d[jointId][1] = (pose3d[jointId][1] * bbox[2])/2.0;
+                        pose3d[jointId][2] = (pose3d[jointId][2] * bbox[2])/2.0;
+                }
+            }
+
+            return pose3d
+        };
+
+
+        this.begin = function(){
+            httpGetAsync(this.reqHandler);
+        };
+
+
+        this.convert = function(pose2d, pose3d){
+
+            var bbox = this.pose2dToBoundingBox(pose2d);
+            var pose3d = this.scale(pose3d, bbox);
+
+            var bonesPoints = [];
+
+            for(var boneId = 0; boneId < bones.length; boneId++){
+
+
+                var joint1 = pose3d[bones[boneId][0]];
+                var joint2 = pose3d[bones[boneId][1]];
+
+                //plot the 3d joint at the bbox location with the 2d bbox size
+
+                joint1 = new Vector3D(joint1[0],joint1[1],joint1[2]);
+                joint2 = new Vector3D(joint2[0],joint2[1],joint2[2]);
+
+                var noiseAroundBone = this.randomPointsAroundSegment(joint1, joint2, 1.5, 58);
+
+                bonesPoints = bonesPoints.concat(noiseAroundBone);
+
+            }
+
+
+            var jointsPoints = pose3d.map(d3Adapteur);
+
+
+            return {'bbox':bbox, 'joints':jointsPoints, 'bones':bonesPoints};
+        };
+
+
+        function httpGetAsync(callback)
+        {
+            var xmlHttp = new XMLHttpRequest();
+
+            xmlHttp.onreadystatechange = function() {
+                if (xmlHttp.readyState == 4 && xmlHttp.status == 200){
+                    callback(xmlHttp.responseText);
+                }
+            };
+
+            xmlHttp.open("GET", "http://localhost:7575", true);
+            xmlHttp.send(null);
+
+        }
+
+
+        this.reqHandler = function(answer){
+
+            answer = JSON.parse(answer);
+
+            var data = {};
+
+            for(var pId=0; pId<answer.length; pId++){
+
+                var pose2dValues = [];
+                var pose3dValues = [];
+
+                for(var jId=0; jId<jointNames.length; jId++){
+
+                    var currJoint = [];
+                    currJoint.push(answer[pId]['pose_2d'][jointNames[jId]]['x']);
+                    currJoint.push(answer[pId]['pose_2d'][jointNames[jId]]['y']);
+                    pose2dValues.push(currJoint);
+
+                    currJoint = [];
+                    currJoint.push(answer[pId]['pose_3d'][jointNames[jId]]['x']);
+                    currJoint.push(answer[pId]['pose_3d'][jointNames[jId]]['y']);
+                    currJoint.push(answer[pId]['pose_3d'][jointNames[jId]]['z']);
+                    pose3dValues.push(currJoint);
+
+                }
+
+                data[answer[pId]['id']] = this.convert(pose2dValues, pose3dValues);
+
+            }
+
+            for(var cId=0; cId<callbacks.length; cId++){
+                callbacks[cId](data)
+            }
+
+
+            setTimeout(function(){
+                httpGetAsync(this.reqHandler)
+            }.bind(this), 30);
+
+
+        }.bind(this);
+
+
+    };
+
+
+
+    function ElectricNoise(totalFiles){
+
+        var files = [...Array(totalFiles)].map(nothing => "ressources/audio/electricNoise.mp3");
+
+        AudioInterface.setFiles(files);
+
+        var isNoisePlaying = false;
+
+        this.play = function(delay){
+
+            isNoisePlaying = true;
+
+            for(var i = 0; i<files.length; i++) {
+                (function (audioId) {
+                    new Promise((resolve) => setTimeout(resolve, Math.random() * delay)).then(function () {
+
+                        if(isNoisePlaying) {
+                            AudioInterface.play(audioId);
+                        }
+
+                    }.bind(this));
+                })(i);
+            }
+
+        };
+
+        this.stop = function(delay){
+
+            for(var i = 0; i<files.length; i++) {
+                (function (audioId) {
+                    new Promise((resolve) => setTimeout(resolve, Math.random() * delay)).then(function () {
+                            AudioInterface.stop(audioId);
+                    }.bind(this));
+                })(i);
+            }
+
+        };
+
+    }
+
+
+
+    function Plot3DControler(svg){
+
+
+        this.personToView = {};
+
+
+        this.electricNoise = new ElectricNoise(10);
+
+        var svgEvent = new SvgEvent(svg);
+
+        this.rotation3d = new Draggable3DRotation(svgEvent, 0, 0);
+
+
+        this.updateView = function(data){
+
+            for(var key in this.personToView){
+                if( !(key in data) ){
+                    this.personToView[key].delete();
+                    delete this.personToView[key];
+                }
+            }
+
+            for(var key in data){
+
+
+                if( !(key in personToView)){
+                    this.personToView[key] = new Person3DView(svg);
+                }
+
+                this.personToView[key].display(data[key], this.rotation3d.getRotationX(), this.rotation3d.getRotationY());
+            }
+
+
+            //var data = poseData1();
+            //person3DView1.display(data['pose2d'], data['pose3d'], rotation3d.getRotationX(), rotation3d.getRotationY());
+
+        }.bind(this);
+
+
+        new DataProvider([this.updateView]).begin();
+
+
+        (function(){
+
+            svgEvent.subscribe('dragStart', function(){
+                this.electricNoise.play(100);
+                console.log("play");
+            }.bind(this));
+
+            svgEvent.subscribe('drag', function(){
+                //this.updateView();
+            }.bind(this));
+
+
+            svgEvent.subscribe('dragEnd', function(){
+                this.electricNoise.stop(200);
+                console.log("stop");
+            }.bind(this));
+
+
+            //this.updateView();
+        })();
+
+    }
+
+
+
+    var plot3dControler = Plot3DControler(d3.select('.plot3d'));
+
+
+
+
+</script>
+</body>
+
+
+</html>
+

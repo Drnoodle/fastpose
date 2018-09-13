@@ -1,0 +1,49 @@
+import numpy as np
+from src.models.modelFactory import ModelFactory
+
+
+class ApiInterface:
+
+
+    def __init__(self):
+
+        self.yolo = ModelFactory.buildYoloInterface()
+        self.stackedHourglass = ModelFactory.buildStackedHourglassInterface()
+        self.pose3D = lambda x:x
+        self.lastBBox = [{'minX':0,'minY':0,'maxX':0,'maxY':0,'confidence':0.0}]
+
+
+    def getBBoxPrediction(self, img):
+        bboxes = self.yolo.predict(img)
+        retBboxes = []
+
+        for bbox in bboxes:
+            bbox = bbox.copy()
+            bbox['minX'], bbox['maxX'] = int(bbox['minX']*img.shape[1]), int(bbox['maxX']*img.shape[1])
+            bbox['minY'], bbox['maxY'] = int(bbox['minY']*img.shape[0]), int(bbox['maxY']*img.shape[0])
+            retBboxes.append(bbox)
+
+        if len(retBboxes) > 0:
+            self.lastBBox = retBboxes
+
+        return retBboxes
+
+
+    def get2dPrediction(self, img, bboxes):
+        bbox = bboxes[0] if len(bboxes) > 0 else self.lastBBox[0]
+        imgCropped = img[ bbox['minY']:bbox['maxY'], bbox['minX']:bbox['maxX'], :]
+        joints2d = self.stackedHourglass.predict(imgCropped)
+
+        return joints2d
+
+    def get3dPrediction(self, joints2d):
+        return np.zeros((14,3))
+
+
+    def predict(self, img):
+
+        bbox = self.getBBoxPrediction(img)
+        joints2d = self.get2dPrediction(img, bbox)
+        joints3d = self.get3dPrediction(joints2d)
+        return joints3d
+
