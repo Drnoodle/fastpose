@@ -12,7 +12,7 @@ from src.utils.pose import PoseConfig, Pose2D, Pose3D
 class AnnotatorInterface:
 
 
-    EXTRA_OBJECT_DETECTION_DELAY = 0.05
+    EXTRA_OBJECT_DETECTION_DELAY = 0.50
 
 
 
@@ -188,7 +188,7 @@ class AnnotatorInterface:
 
 
 
-    """ Terminates the obejct detection routine executed in background"""
+    """ Terminates the object detection routine executed in background"""
     def terminate(self):
         self.object_detector_kill_trigger = True
 
@@ -297,7 +297,7 @@ class AnnotatorInterface:
             joints2d = persons[i]['pose_2d'].get_joints()
             joints3d = persons[i]['pose_3d'].get_joints()
 
-            annot = {'id':persons[i]['id'], 'pose_2d': {}, 'pose_3d': {}, 'confidence':persons[i]['confidence']}
+            annot = {'id':persons[i]['id'], 'pose_2d': {}, 'pose_3d': {}, 'confidence':persons[i]['confidence'].tolist()}
 
             for i in range(PoseConfig.get_total_joints()):
                 joint2d = {'x': float(joints2d[i][0]), 'y': float(joints2d[i][1])}

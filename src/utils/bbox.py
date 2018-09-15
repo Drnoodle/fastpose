@@ -14,19 +14,19 @@ class BBox():
 
     """ Return the min x position in %"""
     def get_min_x(self, img=None):
-        return self.min_x if isinstance(img, type(None)) else int(self.min_x * img.shape[1])
+        return self.min_x if img is None else int(self.min_x * img.shape[1])
 
     """ Return the max x position in %"""
     def get_max_x(self, img=None):
-        return self.max_x if isinstance(img, type(None)) else int(self.max_x * img.shape[1])
+        return self.max_x if img is None else int(self.max_x * img.shape[1])
 
     """ Return the min y position in %"""
     def get_min_y(self, img=None):
-        return self.min_y if isinstance(img, type(None)) else int(self.min_y * img.shape[0])
+        return self.min_y if img is None else int(self.min_y * img.shape[0])
 
     """ Return the max y position in %"""
     def get_max_y(self, img=None):
-        return self.max_y if isinstance(img, type(None)) else int(self.max_y * img.shape[0])
+        return self.max_y if img is None else int(self.max_y * img.shape[0])
 
     """ Crop the given image on the bounding box field, zero pad if the box goes outside the frame"""
     def crop(self, np_img):

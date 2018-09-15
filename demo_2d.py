@@ -37,8 +37,6 @@ def start(movie_path, max_persons):
 
         poses = [p['pose_2d'] for p in persons]
 
-        print(len(persons))
-
         ids = [p['id'] for p in persons]
         frame = Drawer.draw_scene(frame, poses, ids, fps, cap.get(cv2.CAP_PROP_POS_FRAMES))
 
