@@ -19,8 +19,8 @@ class Pose2DInterface:
 
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
-        with tf.gfile.GFile(protograph, "rb") as f:
-            restored_graph_def = tf.GraphDef()
+        with tf.io.gfile.GFile(protograph, "rb") as f:
+            restored_graph_def = tf.compat.v1.GraphDef()
             restored_graph_def.ParseFromString(f.read())
 
         tf.import_graph_def(
@@ -32,7 +32,7 @@ class Pose2DInterface:
 
         self.session = session
 
-        self.graph = tf.get_default_graph()
+        self.graph = tf.compat.v1.get_default_graph()
 
         self.image = self.graph.get_tensor_by_name(input_node_name)
 
@@ -238,4 +238,3 @@ class Pose2DInterface:
 
 
         return poses_2d, confidences
-
